@@ -140,7 +140,7 @@ eventHandler botInfos event = case event of
         sendMessage (pack ("Server ID: " ++ (show $ getGuildID $ messageGuild m))) (messageChannel m)
       "!channelid" -> do
         sendMessage (pack ("Channel ID: " ++ (show $ messageChannel m))) (messageChannel m)
-      "ping" -> do
+      "!ping" -> do
         sendMessage (pack "pong") (messageChannel m)
       "!welcomeTest" -> do
         sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
