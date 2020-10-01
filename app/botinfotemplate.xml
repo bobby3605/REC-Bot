@@ -2,4 +2,5 @@
   <welcomeChannelId></welcomeChannelId>
   <usersRoleId></usersRoleId>
   <serverToken></serverToken>
+  <debug></debug>
 </botInfo>

@@ -23,6 +23,7 @@ data BotInfo = BotInfo
   { welcomeChannelId :: ChannelId
   , usersRoleId      :: RoleId
   , serverToken      :: Text
+  , debug            :: Bool
   }
 
 data ErrorTypes = DuplicateKeys String | NotFound String
@@ -31,6 +32,7 @@ parseFile :: String -> BotInfo
 parseFile file = BotInfo { welcomeChannelId = Snowflake (read (searchXMLForContents file "welcomeChannelId") :: Word64)
                          , usersRoleId = Snowflake (read (searchXMLForContents file "usersRoleId") :: Word64)
                          , serverToken = pack $ searchXMLForContents file "serverToken"
+                         , debug       = if (searchXMLForContents file "debug") == "True" then True else False
                          }
 
 searchXMLForContents :: String -> String -> String
@@ -70,7 +72,7 @@ main = do
     file <- readFile (head args)
     let botInfo = parseFile file in do
       runDiscord (def { discordToken = serverToken botInfo
-                      , discordOnEvent = eventHandler botInfo }) >>= TIO.putStrLn
+                      , discordOnEvent = if debug botInfo then debugHandler botInfo else eventHandler botInfo }) >>= TIO.putStrLn
 
 debugHandler :: BotInfo -> Event -> DiscordHandler ()
 debugHandler botInfo event = case event of
