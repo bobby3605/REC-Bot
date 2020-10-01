@@ -3,5 +3,6 @@
   <SERVERNAME>
     <welcomeChannelId></welcomeChannelId>
     <usersRoleId></usersRoleId>
+    <serverId></serverId>
   </SERVERNAME>
 </botInfo>
