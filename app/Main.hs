@@ -22,7 +22,7 @@ type MET = Maybe ErrorTypes
 data BotInfo = BotInfo
   { welcomeChannelId :: ChannelId
   , usersRoleId      :: RoleId
-  , serverToken      :: Text
+  , botToken      :: Text
   , debug            :: Bool
   }
 
@@ -31,7 +31,7 @@ data ErrorTypes = DuplicateKeys String | NotFound String
 parseFile :: String -> BotInfo
 parseFile file = BotInfo { welcomeChannelId = Snowflake (read (searchXMLForContents file "welcomeChannelId") :: Word64)
                          , usersRoleId = Snowflake (read (searchXMLForContents file "usersRoleId") :: Word64)
-                         , serverToken = pack $ searchXMLForContents file "serverToken"
+                         , botToken = pack $ searchXMLForContents file "botToken"
                          , debug       = if (searchXMLForContents file "debug") == "True" then True else False
                          }
 
@@ -71,7 +71,7 @@ main = do
   if (length args) /= 1 then putStrLn "Invalid argument count" else do
     file <- readFile (head args)
     let botInfo = parseFile file in do
-      runDiscord (def { discordToken = serverToken botInfo
+      runDiscord (def { discordToken = botToken botInfo
                       , discordOnEvent = if debug botInfo then debugHandler botInfo else eventHandler botInfo }) >>= TIO.putStrLn
 
 debugHandler :: BotInfo -> Event -> DiscordHandler ()
