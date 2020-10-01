@@ -1,6 +1,7 @@
 <botInfo>
-  <welcomeChannelId></welcomeChannelId>
-  <usersRoleId></usersRoleId>
   <botToken></botToken>
-  <debug></debug>
+  <SERVERNAME>
+    <welcomeChannelId></welcomeChannelId>
+    <usersRoleId></usersRoleId>
+  </SERVERNAME>
 </botInfo>

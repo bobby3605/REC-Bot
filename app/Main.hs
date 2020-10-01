@@ -14,29 +14,67 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Word
 import qualified Data.List as L
 import Data.Maybe
+import Xeno.Types
 
-type Token = Text
+type BotToken = Text
 
 type MET = Maybe ErrorTypes
 
 data BotInfo = BotInfo
   { welcomeChannelId :: ChannelId
   , usersRoleId      :: RoleId
-  , botToken      :: Text
-  , debug            :: Bool
+  , serverId          :: GuildId
   }
 
 data ErrorTypes = DuplicateKeys String | NotFound String
 
-parseFile :: String -> BotInfo
-parseFile file = BotInfo { welcomeChannelId = Snowflake (read (searchXMLForContents file "welcomeChannelId") :: Word64)
-                         , usersRoleId = Snowflake (read (searchXMLForContents file "usersRoleId") :: Word64)
-                         , botToken = pack $ searchXMLForContents file "botToken"
-                         , debug       = if (searchXMLForContents file "debug") == "True" then True else False
-                         }
+parseFile :: String -> ([Maybe BotInfo], Maybe BotToken)
+parseFile file = (botInfosHelper,botTokenHelper)
+  where mainNode = (parse (B8.pack file))
+        botTokenHelper :: Maybe BotToken
+        botTokenHelper = case findChild mainNode "botToken" of
+          Nothing -> Nothing
+          Just a -> Just (pack $ init $ drop 6 $ show $ head $ contents a)
+        botInfosHelper :: [Maybe BotInfo]
+        botInfosHelper = map botInfoBuilder listOfServerNodes
+          where botInfoBuilder :: Maybe Node -> Maybe BotInfo
+                botInfoBuilder node = case node of
+                  Nothing -> Nothing
+                  Just n -> Just $ BotInfo { welcomeChannelId = Snowflake (read (f "welcomeChannelId") :: Word64)
+                                           , usersRoleId = Snowflake (read (f "usersRoleId") :: Word64)
+                                           , serverId    = Snowflake (read (f "serverId") :: Word64)
+                                           }
+                    where f = searchXMLForContents $ Right n
 
-searchXMLForContents :: String -> String -> String
-searchXMLForContents file input = case parse (B8.pack file) of
+                listOfServerNodes :: [Maybe Node]
+                listOfServerNodes = L.filter isJust $ map childrenFilter $ listOfServerNodesHelper mainNode
+                listOfServerNodesHelper :: Either XenoException Node -> [Maybe Node]
+                listOfServerNodesHelper eNode = case eNode of
+                  Left _ -> [Nothing]
+                  Right node -> map Just $ children node
+                childrenFilter :: Maybe Node -> Maybe Node
+                childrenFilter node = case node of
+                  Nothing -> Nothing
+                  Just n -> if (length (children n) > 0) && ((B8.unpack $ name n) /= "botInfo") then Just n else Nothing
+{-
+findParent :: Node -> String -> Maybe Node
+findParent node input = case (B8.unpack $ name node) of
+  input -> Just node
+  _ -> if (length $ children node) == 0 then Nothing else case L.find isJust (map (\x -> findParent x input) (children node)) of
+    Nothing -> Nothing
+    -- L.find returns Maybe, so a is Just a, the expanded type would be Just $ Just a
+    Just a -> a
+-}
+
+findChild :: Either XenoException Node -> String -> Maybe Node
+findChild eNode input = case eNode of
+  Left _ -> Nothing
+  Right node -> case L.find (\n -> input == (B8.unpack $ name n)) (children node) of
+    Nothing -> Nothing
+    Just a -> Just a
+
+searchXMLForContents :: Either XenoException Node -> String -> String
+searchXMLForContents xml input = case xml of
   Left a -> "ERROR IN SEARCHING FOR CONTENTS: " ++ (show a)
   Right b -> case helper b input of
     Left e -> case e of
@@ -61,8 +99,8 @@ searchXMLForContents file input = case parse (B8.pack file) of
             Just a -> Right a
 
           where myFind :: Either MET String -> Maybe String
-                myFind x = case x of
-                  Left a -> Nothing
+                myFind b = case b of
+                  Left _ -> Nothing
                   Right a -> Just a
 
 main :: IO ()
@@ -70,19 +108,15 @@ main = do
   args <- getArgs
   if (length args) /= 1 then putStrLn "Invalid argument count" else do
     file <- readFile (head args)
-    let botInfo = parseFile file in do
-      runDiscord (def { discordToken = botToken botInfo
-                      , discordOnEvent = if debug botInfo then debugHandler botInfo else eventHandler botInfo }) >>= TIO.putStrLn
-
-debugHandler :: BotInfo -> Event -> DiscordHandler ()
-debugHandler botInfo event = case event of
-  MessageCreate m -> when (not (fromBot m)) $ do
-    case (unpack (messageText m)) of
-      "!roles" -> do
-        roles <- restCall $ R.GetGuildRoles $ getGuildID $ messageGuild m
-        sendMessage (pack ("Role IDs: " ++ (roleListErrorHandler roles))) (messageChannel m)
-      otherwise -> sendMessage (pack ("Channel ID: " ++ (show $ messageChannel m))) (messageChannel m)
-  _ -> pure ()
+    let (maybeBotInfos,maybeToken) = parseFile file in do
+      case maybeToken of
+        Nothing -> putStrLn "Failed to get botToken"
+        Just botToken -> let botInfos = map helper $ L.filter isJust maybeBotInfos in do
+          runDiscord (def { discordToken = botToken
+                          , discordOnEvent = eventHandler botInfos }) >>= TIO.putStrLn
+  where helper :: Maybe BotInfo -> BotInfo
+        helper m = case m of
+          Just a -> a
 
 roleListErrorHandler :: Either RestCallErrorCode [Role] -> String
 roleListErrorHandler e = case e of
@@ -94,20 +128,35 @@ getGuildID gid = case gid of
   Nothing -> 0
   Just a -> a
 
-eventHandler :: BotInfo -> Event -> DiscordHandler ()
-eventHandler botInfo event = case event of
-  -- Ping
-  MessageCreate m -> when (not (fromBot m) && isPing (messageText m)) $ do
-    sendMessage "pong" (messageChannel m)
+eventHandler :: [BotInfo] -> Event -> DiscordHandler ()
+eventHandler botInfos event = case event of
+  -- Commands
+  MessageCreate m -> when (not (fromBot m)) $ do
+    case (unpack (messageText m)) of
+      "!roleids" -> do
+        roles <- restCall $ R.GetGuildRoles $ getGuildID $ messageGuild m
+        sendMessage (pack ("Role IDs: " ++ (roleListErrorHandler roles))) (messageChannel m)
+      "!serverid" -> do
+        sendMessage (pack ("Server ID: " ++ (show $ getGuildID $ messageGuild m))) (messageChannel m)
+      "!channelid" -> do
+        sendMessage (pack ("Channel ID: " ++ (show $ messageChannel m))) (messageChannel m)
+      "ping" -> do
+        sendMessage (pack "pong") (messageChannel m)
+      "!welcomeTest" -> do
+        sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
+      _ -> pure ()
   -- New User
   GuildMemberAdd gid member -> do
-    sendMessage (append "Welcome " (userName $ memberUser member)) welcomeChannel
-    _ <- restCall $ AddGuildMemberRole gid (userId $ memberUser member) usersRole
+    sendMessage (append "Welcome " (userName $ memberUser member)) $ welcomeChannel gid
+    _ <- restCall $ AddGuildMemberRole gid (userId $ memberUser member) $ usersRole gid
     pure ()
   -- Anything else
   _ -> pure ()
-  where welcomeChannel = welcomeChannelId botInfo
-        usersRole      = usersRoleId botInfo
+  where welcomeChannel gid = welcomeChannelId $ getBotInfo botInfos gid
+        usersRole      gid = usersRoleId $ getBotInfo botInfos gid
+
+getBotInfo :: [BotInfo] -> GuildId -> BotInfo
+getBotInfo infos gid = head $ L.filter (\info -> gid==(serverId info)) infos
 
 sendMessage :: Text -> ChannelId -> DiscordHandler ()
 sendMessage m channelid = do
