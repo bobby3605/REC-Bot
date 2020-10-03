@@ -129,8 +129,28 @@ roleListErrorHandler e = case e of
 
 getGuildMemberErrorHandler :: Either RestCallErrorCode GuildMember -> GuildMember
 getGuildMemberErrorHandler e = case e of
-  Left a -> GuildMember {}
+  Left a -> emptyGuildMember
   Right b -> b
+
+emptyGuildMember :: GuildMember
+emptyGuildMember = GuildMember { memberUser = emptyUser
+                               , memberNick = Nothing
+                               , memberRoles = []
+                               , memberJoinedAt = epochTime
+                               , memberDeaf = True
+                               , memberMute = True
+                               }
+emptyUser :: User
+emptyUser = User { userId = 0
+                 , userName = ""
+                 , userDiscrim = ""
+                 , userAvatar = Nothing
+                 , userIsBot = True
+                 , userIsWebhook = True
+                 , userMfa = Nothing
+                 , userVerified = Nothing
+                 , userEmail = Nothing
+                 }
 
 getGuildID :: Maybe GuildId -> GuildId
 getGuildID gid = case gid of
@@ -141,7 +161,7 @@ eventHandler :: [BotInfo] -> Event -> DiscordHandler ()
 eventHandler botInfos event = case event of
   -- Commands
   MessageCreate m -> when (not (fromBot m)) $ do
-    case (unpack (messageText m)) of
+    case (unpack $ messageText m) of
       "!roleids" -> do
         roles <- restCall $ R.GetGuildRoles $ getGuildID $ messageGuild m
         sendMessage (pack ("Role IDs: " ++ (roleListErrorHandler roles))) (messageChannel m)
@@ -153,15 +173,16 @@ eventHandler botInfos event = case event of
         sendMessage (pack "pong") (messageChannel m)
       "!welcomeTest" -> do
         sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
-      "I agree" -> do
-        if ((messageChannel m) == (rulesChannel guildid)) then do
-          member <- restCall $ R.GetGuildMember guildid (userId $ messageAuthor m)
-          if not ((usersRole guildid) `elem` (memberRoles $ getGuildMemberErrorHandler member)) then do
-            _ <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
-            pure ()
+      _ -> do
+        if "i agree" `L.isInfixOf` (unpack $ toLower $ messageText m) then do
+          if ((messageChannel m) == (rulesChannel guildid)) then do
+            member <- restCall $ R.GetGuildMember guildid (userId $ messageAuthor m)
+            if not ((usersRole guildid) `elem` (memberRoles $ getGuildMemberErrorHandler member)) then do
+              _ <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
+              pure ()
+            else pure ()
           else pure ()
-        else pure ()
-      _ -> pure ()
+        else pure()
     where guildid = getGuildID $ messageGuild m
   -- New User
   GuildMemberAdd gid member -> do
@@ -188,6 +209,3 @@ memberToNick member = case (memberNick member) of
 
 fromBot :: Message -> Bool
 fromBot m = userIsBot (messageAuthor m)
-
-isPing :: Text -> Bool
-isPing = ("ping" `isPrefixOf`) . toLower
