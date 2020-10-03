@@ -22,14 +22,14 @@ type BotToken = Text
 
 type MET = Maybe ErrorTypes
 
+data ErrorTypes = DuplicateKeys String | NotFound String
+
 data BotInfo = BotInfo
   { welcomeChannelId :: ChannelId
   , usersRoleId      :: RoleId
   , serverId          :: GuildId
   , rulesChannelId    :: ChannelId
   }
-
-data ErrorTypes = DuplicateKeys String | NotFound String
 
 parseFile :: String -> ([Maybe BotInfo], Maybe BotToken)
 parseFile file = (botInfosHelper,botTokenHelper)
@@ -62,15 +62,6 @@ parseFile file = (botInfosHelper,botTokenHelper)
                 childrenFilter node = case node of
                   Nothing -> Nothing
                   Just n -> if (length (children n) > 0) && ((B8.unpack $ name n) /= "botInfo") then Just n else Nothing
-{-
-findParent :: Node -> String -> Maybe Node
-findParent node input = case (B8.unpack $ name node) of
-  input -> Just node
-  _ -> if (length $ children node) == 0 then Nothing else case L.find isJust (map (\x -> findParent x input) (children node)) of
-    Nothing -> Nothing
-    -- L.find returns Maybe, so a is Just a, the expanded type would be Just $ Just a
-    Just a -> a
--}
 
 findChild :: Either XenoException Node -> String -> Maybe Node
 findChild eNode input = case eNode of
@@ -108,7 +99,6 @@ searchXMLForContents xml input = case xml of
                 myFind b = case b of
                   Left _ -> Nothing
                   Right a -> Just a
-
 main :: IO ()
 main = do
   args <- getArgs
@@ -143,32 +133,25 @@ eventHandler botInfos event = case event of
   -- Commands
   MessageCreate m -> when (not (fromBot m)) $ do
     case (unpack $ messageText m) of
-      "!roleids" -> do
-        roles <- restCallChecked $ R.GetGuildRoles $ getGuildID $ messageGuild m
-        sendMessage (pack ("Role IDs: " ++ (concatMap show roles))) (messageChannel m)
-      "!serverid" -> do
-        sendMessage (pack ("Server ID: " ++ (show $ getGuildID $ messageGuild m))) (messageChannel m)
-      "!channelid" -> do
-        sendMessage (pack ("Channel ID: " ++ (show $ messageChannel m))) (messageChannel m)
-      "!ping" -> do
-        sendMessage (pack "pong") (messageChannel m)
-      "!welcomeTest" -> do
-        sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
+      "!roleids" -> (restCallChecked $ R.GetGuildRoles $ getGuildID $ messageGuild m) >>=
+        (\roles -> sendMessage (pack ("Role IDs: " ++ (concatMap show roles))) (messageChannel m))
+      "!serverid" -> sendMessage (pack ("Server ID: " ++ (show $ getGuildID $ messageGuild m))) (messageChannel m)
+      "!channelid" -> sendMessage (pack ("Channel ID: " ++ (show $ messageChannel m))) (messageChannel m)
+      "!ping" -> sendMessage (pack "pong") (messageChannel m)
+      "!welcomeTest" -> sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
       _ -> do
-        if "i agree" `L.isInfixOf` (unpack $ toLower $ messageText m) then do
+        if "i agree" `L.isInfixOf` (unpack $ toLower $ messageText m) then
           if ((messageChannel m) == (rulesChannel guildid)) then do
             member <- restCallChecked $ R.GetGuildMember guildid (userId $ messageAuthor m)
-            if not ((usersRole guildid) `elem` (memberRoles member)) then do
-              _ <- restCallChecked $ AddGuildMemberRole guildid (userId $ memberUser member) $ usersRole guildid
+            if not ((usersRole guildid) `elem` (memberRoles member)) then
+              (restCallChecked $ AddGuildMemberRole guildid (userId $ memberUser member) $ usersRole guildid) >>
               pure ()
             else pure ()
           else pure ()
-        else pure()
+        else pure ()
     where guildid = getGuildID $ messageGuild m
   -- New User
-  GuildMemberAdd gid member -> do
-    sendMessage (append "Welcome " (userName $ memberUser member)) $ welcomeChannel gid
-    pure ()
+  GuildMemberAdd gid member -> (sendMessage (append "Welcome " (userName $ memberUser member)) $ welcomeChannel gid) >> pure ()
   -- Anything else
   _ -> pure ()
   where welcomeChannel gid = welcomeChannelId $ getBotInfo botInfos gid
@@ -182,14 +165,7 @@ getBotInfo :: [BotInfo] -> GuildId -> BotInfo
 getBotInfo infos gid = head $ L.filter (\info -> gid==(serverId info)) infos
 
 sendMessage :: Text -> ChannelId -> DiscordHandler ()
-sendMessage m channelid = do
-  _ <- restCallChecked (R.CreateMessage channelid m)
-  pure ()
-
-memberToNick :: GuildMember -> Text
-memberToNick member = case (memberNick member) of
-  Nothing -> "User does not have a name"
-  Just _ -> pack $ show member
+sendMessage m channelid = (restCallChecked (R.CreateMessage channelid m)) >> pure ()
 
 fromBot :: Message -> Bool
 fromBot m = userIsBot (messageAuthor m)
