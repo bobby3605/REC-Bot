@@ -4,5 +4,12 @@
     <welcomeChannelId></welcomeChannelId>
     <usersRoleId></usersRoleId>
     <serverId></serverId>
+    <rulesChannelId></rulesChannelId>
   </SERVERNAME>
+  <SERVERNAME2>
+    <welcomeChannelId></welcomeChannelId>
+    <usersRoleId></usersRoleId>
+    <serverId></serverId>
+    <rulesChannelId></rulesChannelId>
+  </SERVERNAME2>
 </botInfo>

@@ -24,6 +24,7 @@ data BotInfo = BotInfo
   { welcomeChannelId :: ChannelId
   , usersRoleId      :: RoleId
   , serverId          :: GuildId
+  , rulesChannelId    :: ChannelId
   }
 
 data ErrorTypes = DuplicateKeys String | NotFound String
@@ -40,11 +41,14 @@ parseFile file = (botInfosHelper,botTokenHelper)
           where botInfoBuilder :: Maybe Node -> Maybe BotInfo
                 botInfoBuilder node = case node of
                   Nothing -> Nothing
-                  Just n -> Just $ BotInfo { welcomeChannelId = Snowflake (read (f "welcomeChannelId") :: Word64)
-                                           , usersRoleId = Snowflake (read (f "usersRoleId") :: Word64)
-                                           , serverId    = Snowflake (read (f "serverId") :: Word64)
+                  Just n -> Just $ BotInfo { welcomeChannelId = getSnowflake "welcomeChannelId"
+                                           , usersRoleId = getSnowflake "usersRoleId"
+                                           , serverId    = getSnowflake "serverId"
+                                           , rulesChannelId = getSnowflake "rulesChannelId"
                                            }
                     where f = searchXMLForContents $ Right n
+                          getSnowflake :: String -> Snowflake
+                          getSnowflake x = Snowflake (read (f x) :: Word64)
 
                 listOfServerNodes :: [Maybe Node]
                 listOfServerNodes = L.filter isJust $ map childrenFilter $ listOfServerNodesHelper mainNode
@@ -123,6 +127,11 @@ roleListErrorHandler e = case e of
   Left a -> "Error getting role: " ++ (show a)
   Right b -> concatMap show b
 
+getGuildMemberErrorHandler :: Either RestCallErrorCode GuildMember -> GuildMember
+getGuildMemberErrorHandler e = case e of
+  Left a -> GuildMember {}
+  Right b -> b
+
 getGuildID :: Maybe GuildId -> GuildId
 getGuildID gid = case gid of
   Nothing -> 0
@@ -144,16 +153,25 @@ eventHandler botInfos event = case event of
         sendMessage (pack "pong") (messageChannel m)
       "!welcomeTest" -> do
         sendMessage (append "Welcome " (userName $ messageAuthor m)) $ welcomeChannel $ getGuildID $ messageGuild m
+      "I agree" -> do
+        if ((messageChannel m) == (rulesChannel guildid)) then do
+          member <- restCall $ R.GetGuildMember guildid (userId $ messageAuthor m)
+          if not ((usersRole guildid) `elem` (memberRoles $ getGuildMemberErrorHandler member)) then do
+            _ <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
+            pure ()
+          else pure ()
+        else pure ()
       _ -> pure ()
+    where guildid = getGuildID $ messageGuild m
   -- New User
   GuildMemberAdd gid member -> do
     sendMessage (append "Welcome " (userName $ memberUser member)) $ welcomeChannel gid
-    _ <- restCall $ AddGuildMemberRole gid (userId $ memberUser member) $ usersRole gid
     pure ()
   -- Anything else
   _ -> pure ()
   where welcomeChannel gid = welcomeChannelId $ getBotInfo botInfos gid
         usersRole      gid = usersRoleId $ getBotInfo botInfos gid
+        rulesChannel   gid = rulesChannelId $ getBotInfo botInfos gid
 
 getBotInfo :: [BotInfo] -> GuildId -> BotInfo
 getBotInfo infos gid = head $ L.filter (\info -> gid==(serverId info)) infos
