@@ -16,6 +16,7 @@ import qualified Data.List as L
 import Data.Maybe
 import Xeno.Types
 import Control.Monad.IO.Class
+import Discord.Internal.Rest.Prelude
 
 type BotToken = Text
 
@@ -123,40 +124,19 @@ main = do
         helper m = case m of
           Just a -> a
 
-roleListErrorHandler :: Either RestCallErrorCode [Role] -> String
-roleListErrorHandler e = case e of
-  Left a -> "Error getting role: " ++ (show a)
-  Right b -> concatMap show b
-
-getGuildMemberErrorHandler :: Either RestCallErrorCode GuildMember -> GuildMember
-getGuildMemberErrorHandler e = case e of
-  Left a -> emptyGuildMember
-  Right b -> b
-
-emptyGuildMember :: GuildMember
-emptyGuildMember = GuildMember { memberUser = emptyUser
-                               , memberNick = Nothing
-                               , memberRoles = []
-                               , memberJoinedAt = epochTime
-                               , memberDeaf = True
-                               , memberMute = True
-                               }
-emptyUser :: User
-emptyUser = User { userId = 0
-                 , userName = ""
-                 , userDiscrim = ""
-                 , userAvatar = Nothing
-                 , userIsBot = True
-                 , userIsWebhook = True
-                 , userMfa = Nothing
-                 , userVerified = Nothing
-                 , userEmail = Nothing
-                 }
-
 getGuildID :: Maybe GuildId -> GuildId
 getGuildID gid = case gid of
   Nothing -> 0
   Just a -> a
+
+catchErrors :: FromJSON a => DiscordHandler (Either RestCallErrorCode a) -> DiscordHandler a
+catchErrors x = do
+  t <- x
+  case t of
+    Left a -> do
+      liftIO $ putStrLn $ show a
+      mzero
+    Right b -> pure b
 
 eventHandler :: [BotInfo] -> Event -> DiscordHandler ()
 eventHandler botInfos event = case event of
@@ -164,8 +144,8 @@ eventHandler botInfos event = case event of
   MessageCreate m -> when (not (fromBot m)) $ do
     case (unpack $ messageText m) of
       "!roleids" -> do
-        roles <- restCall $ R.GetGuildRoles $ getGuildID $ messageGuild m
-        sendMessage (pack ("Role IDs: " ++ (roleListErrorHandler roles))) (messageChannel m)
+        roles <- restCallChecked $ R.GetGuildRoles $ getGuildID $ messageGuild m
+        sendMessage (pack ("Role IDs: " ++ (concatMap show roles))) (messageChannel m)
       "!serverid" -> do
         sendMessage (pack ("Server ID: " ++ (show $ getGuildID $ messageGuild m))) (messageChannel m)
       "!channelid" -> do
@@ -177,12 +157,10 @@ eventHandler botInfos event = case event of
       _ -> do
         if "i agree" `L.isInfixOf` (unpack $ toLower $ messageText m) then do
           if ((messageChannel m) == (rulesChannel guildid)) then do
-            member <- restCall $ R.GetGuildMember guildid (userId $ messageAuthor m)
-            if not ((usersRole guildid) `elem` (memberRoles $ getGuildMemberErrorHandler member)) then do
-              eitherErrorAddMemRole <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
-              case eitherErrorAddMemRole of
-                Left a -> liftIO $ putStrLn $ show a
-                Right b -> pure ()
+            member <- restCallChecked $ R.GetGuildMember guildid (userId $ messageAuthor m)
+            if not ((usersRole guildid) `elem` (memberRoles member)) then do
+              _ <- restCallChecked $ AddGuildMemberRole guildid (userId $ memberUser member) $ usersRole guildid
+              pure ()
             else pure ()
           else pure ()
         else pure()
@@ -197,12 +175,15 @@ eventHandler botInfos event = case event of
         usersRole      gid = usersRoleId $ getBotInfo botInfos gid
         rulesChannel   gid = rulesChannelId $ getBotInfo botInfos gid
 
+restCallChecked :: (FromJSON a, Request (r a)) => r a -> DiscordHandler a
+restCallChecked = catchErrors . restCall
+
 getBotInfo :: [BotInfo] -> GuildId -> BotInfo
 getBotInfo infos gid = head $ L.filter (\info -> gid==(serverId info)) infos
 
 sendMessage :: Text -> ChannelId -> DiscordHandler ()
 sendMessage m channelid = do
-  _ <- restCall (R.CreateMessage channelid m)
+  _ <- restCallChecked (R.CreateMessage channelid m)
   pure ()
 
 memberToNick :: GuildMember -> Text
