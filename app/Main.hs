@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Monad (when)
+import Control.Monad
 import Data.Text (isPrefixOf, toLower, Text, append, pack, unpack)
 import qualified Data.Text.IO as TIO
 
@@ -15,6 +15,7 @@ import Data.Word
 import qualified Data.List as L
 import Data.Maybe
 import Xeno.Types
+import Control.Monad.IO.Class
 
 type BotToken = Text
 
@@ -178,8 +179,10 @@ eventHandler botInfos event = case event of
           if ((messageChannel m) == (rulesChannel guildid)) then do
             member <- restCall $ R.GetGuildMember guildid (userId $ messageAuthor m)
             if not ((usersRole guildid) `elem` (memberRoles $ getGuildMemberErrorHandler member)) then do
-              _ <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
-              pure ()
+              eitherErrorAddMemRole <- restCall $ AddGuildMemberRole guildid (userId $ memberUser $ getGuildMemberErrorHandler member) $ usersRole guildid
+              case eitherErrorAddMemRole of
+                Left a -> liftIO $ putStrLn $ show a
+                Right b -> pure ()
             else pure ()
           else pure ()
         else pure()
