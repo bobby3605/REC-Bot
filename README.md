@@ -1,4 +1,5 @@
 # discordbot
+Uses the discord-haskell library
 ## Building:
 ``` stack build```
 ## Run:
